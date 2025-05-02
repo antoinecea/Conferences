@@ -1,0 +1,43 @@
+@DSL Implicit;
+@Behaviour Plastic;
+@Author Antoine Martin;
+@Date 13 / 03 / 25;
+
+@Algorithm NewtonRaphson;
+@Epsilon 1.e-14;
+@Theta 1;
+@UseQt false;
+
+@TFELLibraries {"Material"};
+@Includes{
+#include "TFEL/Material/StiffnessTensor.hxx"
+}
+
+@ModellingHypothesis Axisymmetrical;
+@PhysicalBounds T in [0. : *[;
+
+@AuxiliaryStateVariable real T_;
+T_.setEntryName("ttemperature");
+
+@Brick "StandardElastoViscoPlasticity" {
+stress_potential : "Hooke" {
+young_modulus : "200.e9-170.e6*(T-273.15)",
+poisson_ratio : 0.3,
+thermal_expansion : 15e-6
+},
+inelastic_flow : "Plastic" {
+criterion : "Mises",
+kinematic_hardening : "Prager" {
+C : "8e9"
+},
+isotropic_hardening : "Linear" {R0 : "1000.e6-120.e3*(T-273.15)"},
+maximum_equivalent_stress_factor : 1.5,
+equivalent_stress_check_maximum_iteration_factor: 0.4
+}
+};
+
+@InitLocalVariables<Append>{
+T_=T;
+}
+
+

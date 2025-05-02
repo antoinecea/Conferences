@@ -1,0 +1,246 @@
+* fichier :  taylor.dgibi
+*=======================================================================
+*
+*
+*=======================================================================
+
+opti echo 0 ;
+
+*=======================================================================
+*
+*                      JEU DE DONNEES PRINCIPAL
+*
+*=======================================================================
+
+
+'OPTION'  'DIMENSION'  2 'ELEM' QUA8 'MODELISER' AXIS ;
+
+*-----------------------------------------------------------------------
+* Maillage
+*-----------------------------------------------------------------------
+
+lr= 0.0125 ;
+hz= 0.100 ;
+nr = 8;
+nz = 80;
+
+pO = 0. 0. ;
+p1 = 0. hz ;
+l1 = 'DROIT' pO (lr 0.) nr ;
+s1 = 'TRANSLATION' l1 (0. hz) nz ;
+l2 = s1 'FACE' 2;
+l3 = s1 'FACE' 3;
+
+
+
+*----------------------------------------------------------------------*
+*                THERMIQUE                                             *
+*----------------------------------------------------------------------*
+
+** Parametres materiau 
+lambda = 50. ;
+cp     = 420. ;
+rho    = 7800. ;
+
+** Parametres des conditions limites et chargement /
+t0     = 0. ;
+timp   =  1273.15;
+tempfinal = 293.15;
+ratio = tempfinal/timp;
+
+** Instant final / Final time 
+tfinal = 10. ;
+
+** Modele de conduction / Conduction model
+mot = MODE s1 'THERMIQUE' 'CONDUCTION' ;
+mat = MATE mot 'K' lambda 'C' cp 'RHO' rho ;
+
+** Matrice de conductivite / Conductivity matix
+con = COND mot mat ;
+
+blt = BLOQ 'T' (l1 et l2 et l3) ;
+pti = DEPI blt timp ;
+
+** Descriptions temporelles des chargements /
+
+* Température imposée
+list3   = PROG 0. (0.1*tfinal) tfinal;
+list4   = PROG 1 ratio ratio;
+evt2    = EVOL 'MANU' list3 list4 ;
+chatimp = CHAR 'TIMP' pti evt2 ;
+
+T_ini = timp ;
+ChpT0 = 'MANU' 'CHPO' s1 'T' T_ini ; 
+ 
+** Resolution avec la procedure PASAPAS /
+n1 =  800;
+delta_t                      = tfinal / n1 ;
+
+tab1                         = TABL ;
+tab1 . 'MODELE'              = mot ;
+tab1 . 'CARACTERISTIQUES'    = mat ;
+tab1 . 'TEMPERATURES'        = TABL ;
+tab1 . 'TEMPERATURES'. 0     = ChpT0 ;
+tab1 . 'BLOCAGES_THERMIQUES' = blt ;
+tab1 . 'CHARGEMENT'          = chatimp ;
+tab1 . 'TEMPS_CALCULES'      = PROG 0. 'PAS' delta_t tfinal ;
+PASAPAS tab1 ;
+
+nnt=('DIMENSION' (tab1. 'TEMPERATURES' ))/100;
+'REPETER' i nnt;
+  t  = tab1. 'TEMPS'. (100*(&i-1));
+  tempi  = tab1. 'TEMPERATURES'. (100*(&i-1));
+  titi  = CHAI 'Températures au temps' ' ' t ;
+  OPTI TRAC PSC;
+  TRAC tempi s1 'TITR' titi ;
+'FIN'  i;
+
+*----------------------------------------------------------------------*
+*               		 MECANIQUE			       *
+*----------------------------------------------------------------------*
+
+* 1 Definition du modele
+
+coel = 'MOTS' 'YOUN' 'NU' 'RHO' 'ALPH' 'DELT' 'BETA' 'MS' 'B_A';
+
+statev ='MOTS' 'TPRR' 'TPZZ' 'TPTT' 'TPRZ' 'MERR' 'MEZZ' 'METT'
+'MERZ' 'MSRR' 'MSZZ' 'MSTT' 'MSRZ' 'MLRR' 'MLZZ' 'MLTT' 'MLRZ' 'MKRR'
+'MKZZ' 'MKTT' 'MKRZ' 'P_M' 'T__M' 'AERR' 'AEZZ' 'AETT' 'AERZ' 'ASRR'
+'ASZZ' 'ASTT' 'ASRZ' 'ALRR'
+'ALZZ' 'ALTT' 'ALRZ' 'AKRR' 'AKZZ' 'AKTT'
+'AKRZ' 'P_A' 'THRR' 'THZZ' 'THTT' 'THRZ' 'Z_M' 'Z_A';
+
+params  = 'MOTS' 'T';
+mo_meca = 'MODELISER' s1 'MECANIQUE' 'ELASTIQUE'
+                    'NON_LINEAIRE' 'UTILISATEUR'
+                    'EPSILON' LINEAIRE
+                    'LIB_LOI' './src/libUmatBehaviour.so'
+                   'FCT_LOI' 'umattaylorphasetransform'
+                   'C_MATERIAU' coel 'C_VARINTER' statev
+                   'PARA_LOI' params 'CONS' M;
+
+* 2 Affectation des constantes de materiau
+
+ma_meca = 'MATERIAU' mo_meca 'YOUN' 1.e9 'NU' 0.3 'RHO' 0. 'ALPH' 1.e-6
+'DELT' 0.011 'BETA' 0.02 'MS' 673.15 'B_A' 0.38;
+
+* 3 Definition des conditions aux limites et chargements
+
+* 1.4.0 Creation de progressions pour la ponderation des chargements,
+*       definissant autant d'etats a calculer
+n2=n1;
+NPAS    = n2;
+L_temps = PROG 0.0 'PAS' (tfinal/NPAS)  tfinal;
+
+
+* 1.4.1 Blocages mecaniques
+
+blm = BLOQ 'UZ' l3 ;
+blm2 = BLOQ 'UZ' l1 ;
+
+* 1.4.2 Températures imposées
+
+ttemps     = tab1 . 'TEMPS' ;
+ttimp      = tab1 . 'TEMPERATURES' ;
+
+chatemp    = CHAR 'T' ttemps ttimp ;
+
+list5   = PROG 0. tfinal ;
+list6   = PROG 0. 1. ;
+evt3    = EVOL 'MANU' list5 list6 ;
+
+ptf = s1 POIN 'PROCHE' (0.00625 0.1) ;
+force2 = FORC (0. 1E6) l1 ;
+char2 = CHAR MECA force2 evt3;
+
+
+* 1.5 Resolution par INCREPL
+
+TABU                  = TABLE ;
+TABU . 'TEMPS'        = tab1 . 'TEMPS' ;
+TABU . 'DEPLACEMENTS' = TABLE ;
+TABU . 'DEFORMATIONS' = TABLE ;
+TABU . 'CONTRAINTES'  = TABLE ;
+
+
+TAB2                         = 'TABL' ;
+TAB2 . 'GRANDS_DEPLACEMENTS' = FAUX ;
+TAB2 . 'MODELE'              = mo_meca ;
+TAB2 . 'MATERIAUX'           = ma_meca ;
+TAB2 . 'BLOCAGES_MECANIQUES' = (blm et blm2);
+TAB2 . 'CHARGEMENT'          = char2 et chatemp;
+TAB2 . 'TEMPERATURES'          = tab1 . 'TEMPERATURES';
+TAB2 . 'TEMPS_INI'           = 'EXTR' L_temps 1 ;
+TAB2 . 'K_TANGENT'           = 'KTAC';
+TAB2 . 'INCREPL_VERSION'     = 4;
+TABU . 'TEMPS' . 0           = TAB2 . 'TEMPS_INI' ;
+TAB2 . '__FNONL__' = FAUX;
+TAB2 . 'MESSAGES'            = VRAI ;
+U0       = 'ZERO' mo_meca 'DEPLACEM' ;
+U0       = 'CHAN' 'CHPO' mo_meca U0 ;
+U0       = 'CHAN' 'ATTRIBUT' U0 'NATURE' 'DIFFUS' ;
+
+TABU . 'DEPLACEMENTS' . 0 = U0 ;
+TABU . 'DEFORMATIONS' . 0 = 'ZERO' mo_meca 'DEFORMAT' ;
+TABU . 'CONTRAINTES'  . 0 = 'ZERO' mo_meca 'CONTRAIN' ;
+TABU . 'TEMPERATURES'   = tab2. 'TEMPERATURES' ;
+p = 0;
+te  = 'EXTR' L_temps ('DIME' L_temps);
+
+'REPE' B2 (('DIME' L_temps) '-' 1);
+   t   = 'EXTR' L_temps &B2;
+   tdt = 'EXTR' L_temps (&B2 '+' 1);
+   dt = tdt '-' t;
+  'MESSAGE' 'TEMPS: ' t ' ' dt;
+  TAB2. 'TEMPS_INI'   = t;
+  'SI' ('>' (t+dt) te);
+    TAB2 . 'TEMPS_FIN' = te ;
+  'SINO' ;
+    TAB2 . 'TEMPS_FIN' = t+dt ;
+  'FINSI';
+  STAB2    = INCREPL TAB2 ;
+  bconv = FAUX;
+  'SI' ('EXISTE' stab2 'CONV_MECA');
+    bconv = stab2.'CONV_MECA';
+  'FINSI' ;
+  'SI' ('EXISTE'  stab2 '_ERREUR_');
+       bCONV = bCONV 'ET' ('EGA' (STAB2. '_ERREUR_') 0);
+  'FINSI' ;
+  'SI' bCONV ;
+    p = p+1;
+    'SI' ('EXISTE' STAB2 'DU_FIN') ;
+      U      = STAB2 . 'DU_FIN' ;
+    'SINO' ;
+      U      = U + (STAB2 . 'DU_FIN') ;
+    'FINS' ;
+    TAB2 . 'TEMPS_INI'  = TPS ;
+    TAB2 . 'U_INI'      = U ;
+    TAB2 . 'SIGMA_INI'  = STAB2 . 'SIGMA_FIN' ;
+    TABU . 'TEMPS' . p        = t+dt ;
+    TABU . 'DEPLACEMENTS' . p = U ;
+    TABU . 'DEFORMATIONS' . p = 'EPSI' mo_meca U ;
+    TABU . 'CONTRAINTES'    . p  = STAB2 . 'SIGMA_FIN' ;
+  
+    s  = tabu. 'CONTRAINTES'. p;
+    defi  = DEFO s1 U 10 ;
+    SIGB = EXTR s 1 'SMZZ' 1 1;
+    titi  = CHAI 'Contraintes au temps' ' ' t ;
+    'SI' ('<' t 2.51);
+    'SI' ('>' t 2.49); 
+    OPTI TRAC PSC;
+    TRAC s mo_meca defi 'TITR' titi ;
+    'FINSI';
+    'FINSI';
+    t = t+dt;
+    'SI'('>' t te);
+      t = te;
+    'FINSI' ;
+  'SINON';
+    'ERREUR'  'NON CONVERGENCE';  
+  'FINSI' ;
+'FIN' B2 ;
+
+pt = 'PROG';
+ps = 'PROG';
+
+'FIN' ;

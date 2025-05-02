@@ -1,0 +1,135 @@
+@DSL ImplicitII;
+@Behaviour TaylorPhaseTransform;
+@Author Antoine Martin;
+
+@Algorithm NewtonRaphson;
+@Epsilon 1.e-14;
+@Theta 1;
+
+@UseQt false;
+
+@ModellingHypothesis Axisymmetrical;
+@PhysicalBounds T in [0. : *[;
+
+@MaterialProperty strain delta_th;
+@MaterialProperty real beta;
+@MaterialProperty temperature Ms;
+
+@BehaviourVariable mar {
+file: "plastic.mfront",
+variables_suffix: "_m",
+external_names_prefix: "Martensite",
+shared_external_state_variables: {".+"}
+};
+
+@BehaviourVariable aus {
+file: "viscoplastic.mfront",
+variables_suffix: "_a",
+external_names_prefix: "Austenite",
+shared_external_state_variables: {".+"},
+shared_material_properties: {".+"}
+};
+
+@StateVariable StrainStensor etp;
+etp.setEntryName("TransformationPlasticityStrain");
+
+@AuxiliaryStateVariable StrainStensor ethm;
+ethm.setEntryName("MetallurgicalStrain");
+
+@AuxiliaryStateVariable real z_m;
+z_m.setEntryName("MartensiteFraction");
+
+@AuxiliaryStateVariable real z_a;
+z_a.setEntryName("AusteniteFraction");
+
+@LocalVariable StiffnessTensor Dt_m;
+@LocalVariable StiffnessTensor Dt_a;
+@LocalVariable frequency dotz;
+@LocalVariable StrainStensor dethm;
+@LocalVariable real dz_a;
+@LocalVariable stress sigy_a;
+@LocalVariable Stensor dth_a;
+@LocalVariable Stensor dth_m;
+
+@Integrator{
+  auto K=tfel::math::st2tost2<2u,real>::K();
+  auto Id=tfel::math::st2tost2<2u,real>::Id();
+  auto I=tfel::math::stensor<2u,real>::Id();
+  constexpr const auto eps =1.e-20;
+  
+  z_a=exp(-beta*max(Ms-T,0.));
+  z_m=1-z_a;
+  auto T_dot=dT/max(dt,eps);
+  dotz=-beta*T_dot*(-max(Ms-T,0.)/max(Ms-T,eps))*z_a;
+  dz_a=dotz*max(dt,eps);
+  dethm=-dz_a*delta_th*I;
+  
+  // integrating the austenitic phase
+  initialize(aus);
+  const auto [eth_bts_a, eth_ets_a] = aus.computeStressFreeStrain();
+  aus.eto=eto-etp-ethm;
+  dth_a=eth_ets_a-eth_bts_a;
+  aus.deto=deto-detp-dethm - dth_a;
+  constexpr auto aus_smflag = TangentOperatorTraits<MechanicalBehaviourBase::STANDARDSTRAINBASEDBEHAVIOUR>::STANDARDTANGENTOPERATOR;
+  const auto r2 = aus.integrate(aus_smflag,CONSISTENTTANGENTOPERATOR);
+  if ((r2 != 0) && (r2 != 1)) {
+    return false;
+  }
+  Dt_a = aus.getTangentOperator();
+
+  
+  // integrating the martensitic phase
+  if (z_m>0){
+  initialize(mar);
+  const auto [eth_bts_m, eth_ets_m] = mar.computeStressFreeStrain();
+  mar.eto=eto-etp-ethm;
+  dth_m=eth_ets_m-eth_bts_m;
+  mar.deto=deto-detp-dethm - dth_m;
+  constexpr auto mar_smflag = TangentOperatorTraits<MechanicalBehaviourBase::STANDARDSTRAINBASEDBEHAVIOUR>::STANDARDTANGENTOPERATOR;
+  const auto r1 = mar.integrate(mar_smflag,CONSISTENTTANGENTOPERATOR);
+  if ((r1 != 0) && (r1 != 1)) {
+    return false;
+  }
+  Dt_m = mar.getTangentOperator();
+  }
+  else{
+  mar.sig= Stensor::zero();
+  Dt_m=Stensor4::zero();
+  }
+ 
+  sigy_a=200.e6+400.e3*(1273.15-T);
+  
+  //residue
+  sig=z_m* mar.sig + z_a* aus.sig;
+  auto coeff = z_m>0.03 ? 1. : 0.;
+  fetp=detp+coeff*max(dt,eps)*3*delta_th/sigy_a*(dotz)*deviator(sig);
+  auto partial_dfetp_dsig=coeff*max(dt,eps)*3*delta_th/sigy_a*(dotz)*K;
+  auto partial_dsig_detp= - z_m * Dt_m - z_a * Dt_a;
+  dfetp_ddetp=Id+partial_dfetp_dsig*partial_dsig_detp;
+}
+
+
+@ComputeFinalStress{
+sig = z_m * mar.sig + z_a * aus.sig;
+}
+
+@UpdateAuxiliaryStateVariables{
+ethm+=dethm;
+eto_a+=dth_a;
+eto_m+=dth_m;
+z_a+=dz_a;
+}
+
+
+@TangentOperator{
+constexpr const auto eps =1.e-20;
+auto K=tfel::math::st2tost2<2u,real>::K();
+auto coeff = z_m>0.03 ? 1. : 0.;
+Stensor4 partial_dfetp_dsig=coeff*max(dt,eps)*3*delta_th/sigy_a*(dotz)*K;
+Stensor4 partial_dsig_deto=z_m *Dt_m + z_a * Dt_a;
+Stensor4 partial_dfetp_deto=partial_dfetp_dsig*partial_dsig_deto;
+Stensor4 iJ;
+getPartialJacobianInvert(iJ);
+auto detp_deto=-iJ*partial_dfetp_deto;
+Dt = z_m * (Dt_m - Dt_m * detp_deto) + z_a * (Dt_a - Dt_a * detp_deto);
+}

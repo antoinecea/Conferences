@@ -1,0 +1,174 @@
+@DSL ImplicitII;
+@Behaviour SachsPhaseTransform;
+@Author Antoine Martin;
+
+@Algorithm NewtonRaphson;
+@Epsilon 1.e-14;
+@Theta 1;
+@UseQt false;
+
+@ModellingHypothesis Axisymmetrical;
+@PhysicalBounds T in [0. : *[;
+
+@Parameter real sig0 =1.e11;
+@MaterialProperty strain delta_th;
+@MaterialProperty real beta;
+@MaterialProperty temperature Ms;
+
+@Includes{
+#include "MFront/GenericBehaviour/BehaviourData.hxx"
+}
+
+@BehaviourVariable mar {
+file: "plastic.mfront",
+variables_suffix: "_m",
+store_thermodynamic_forces: false,
+external_names_prefix: "Martensite",
+shared_external_state_variables: {".+"}
+};
+
+@BehaviourVariable aus {
+file: "viscoplastic.mfront",
+variables_suffix: "_a",
+store_thermodynamic_forces: false,
+external_names_prefix: "Austenite",
+shared_external_state_variables: {".+"},
+shared_material_properties: {".+"}
+};
+
+@StateVariable StressStensor Sig;
+Sig.setEntryName("TotalStress");
+
+@AuxiliaryStateVariable StrainStensor etp;
+etp.setEntryName("TransformationPlasticityStrain");
+
+@AuxiliaryStateVariable StrainStensor ethm;
+ethm.setEntryName("MetallurgicalStrain");
+
+@AuxiliaryStateVariable real z_m;
+z_m.setEntryName("MartensiteFraction");
+
+@AuxiliaryStateVariable real z_a;
+z_a.setEntryName("AusteniteFraction");
+
+@AuxiliaryStateVariable StrainStensor eth_a_;
+eth_a_.setEntryName("AusteniteThermalStrain");
+
+@AuxiliaryStateVariable StrainStensor eth_m_;
+eth_m_.setEntryName("MartensiteThermalStrain");
+
+@LocalVariable StiffnessTensor Dt_m;
+@LocalVariable StiffnessTensor Dt_a;
+@LocalVariable frequency dotz;
+@LocalVariable StrainStensor dethm;
+@LocalVariable StrainStensor detp;
+@LocalVariable StrainStensor dth_m;
+@LocalVariable StrainStensor dth_a;
+@LocalVariable StrainStensor deto_m;
+@LocalVariable StrainStensor deto_a;
+@LocalVariable real dz_a;
+@LocalVariable stress sigy_a;
+@LocalVariable StrainStensor A;
+@LocalVariable StiffnessTensor iDt_m;
+@LocalVariable StiffnessTensor iDt_a;
+@LocalVariable StressStensor rsig_a;
+@LocalVariable StressStensor rsig_m;
+
+@Integrator {
+
+  auto Id=tfel::math::st2tost2<2u,real>::Id();
+  auto K=tfel::math::st2tost2<2u,real>::K();
+  auto I=tfel::math::stensor<2u,real>::Id();
+  constexpr const auto eps =1.e-20;
+  
+  z_a=exp(-beta*max(Ms-T,0.));
+  z_m=1-z_a;
+  auto T_dot=dT/max(dt,eps);
+  dotz=-beta*T_dot*(-max(Ms-T,0.)/max(Ms-T,eps))*z_a;
+  dz_a=dotz*max(dt,eps);
+  dethm=-dz_a*delta_th*I;
+  
+  // integrating the first phase
+  initialize(aus);
+  const auto [eth_bts_a, eth_ets_a] = aus.computeStressFreeStrain();
+  aus.eto=eto_a;
+  dth_a=eth_ets_a - eth_bts_a;
+  aus.deto=deto_a - dth_a;
+
+  constexpr auto b1_smflag = TangentOperatorTraits<MechanicalBehaviourBase::STANDARDSTRAINBASEDBEHAVIOUR>::STANDARDTANGENTOPERATOR;
+  const auto r1 = aus.integrate(b1_smflag,CONSISTENTTANGENTOPERATOR);
+  if ((r1 != 0) && (r1 != 1)) {
+    return false;
+  }
+  Dt_a = aus.getTangentOperator();
+  iDt_a=invert(Dt_a);
+  auto dsig_a=aus.sig-sig;
+  rsig_a=(dsig_a-dSig)/sig0;
+  
+  sigy_a=200.e6+400.e3*(1273.15-T);
+  auto coeff = z_m>0.03 ? 1. : 0.;
+  auto detp_dsig=-coeff*max(dt,eps)*3*delta_th/sigy_a*dotz*K;
+  detp=detp_dsig*(Sig+theta*dSig);
+  
+  // integrating the second phase 
+  if (z_m>0){
+  initialize(mar);
+  const auto [eth_bts_m, eth_ets_m] = mar.computeStressFreeStrain();
+  dth_m=eth_ets_m - eth_bts_m;
+  mar.deto=deto_m - dth_m;
+  constexpr auto b2_smflag = TangentOperatorTraits<MechanicalBehaviourBase::STANDARDSTRAINBASEDBEHAVIOUR>::STANDARDTANGENTOPERATOR;
+  const auto r2 = mar.integrate(b2_smflag,CONSISTENTTANGENTOPERATOR);
+  if ((r2 != 0) && (r2 != 1)) {
+    return false;
+  }
+  Dt_m = mar.getTangentOperator();
+  iDt_m= invert(Dt_m);
+  auto dsig_m=mar.sig-sig;
+  rsig_m=(dsig_m-dSig)/sig0;
+  
+  auto rE=deto-dethm-detp-z_a*deto_a-z_m*deto_m;
+  fSig=rE+z_a*iDt_a*rsig_a*sig0+z_m*iDt_m*rsig_m*sig0;
+  dfSig_ddSig = -z_a*iDt_a-theta*detp_dsig-z_m*iDt_m;
+  }
+  else{
+  mar.sig= Stensor::zero();
+  Dt_m=Stensor4::zero();
+  auto rE=deto-dethm-detp-z_a*deto_a;
+  fSig=rE+z_a*iDt_a*rsig_a*sig0;
+  dfSig_ddSig = -z_a*iDt_a-theta*detp_dsig;
+  }  
+}
+
+@ProcessNewCorrection {
+  // static decondensation
+  if (z_m>0){
+    deto_m += iDt_m*(delta_dSig-sig0*rsig_m);
+    }
+    deto_a+=iDt_a*(delta_dSig-sig0*rsig_a);
+    if (z_m>0){
+    }
+  }
+
+
+@UpdateAuxiliaryStateVariables{
+ethm+=dethm;
+etp+=detp;
+z_a+=dz_a;
+eth_a_+=dth_a;
+eto_a+=dth_a;
+if (z_m>0){
+eth_m_+=dth_m;
+eto_m+=dth_m;
+}
+}
+
+
+@ComputeFinalStress{
+sig += dSig;
+}
+
+@TangentOperator{
+// Calcul de l'opérateur tangent cohérent
+  Dt=-iJ_Sig_Sig;
+}
+

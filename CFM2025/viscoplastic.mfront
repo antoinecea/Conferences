@@ -1,0 +1,44 @@
+@DSL Implicit;
+//@Material austenite;
+@Behaviour Viscoplastic;
+@Author Antoine Martin;
+@Date 13 / 03 / 25;
+
+
+@Algorithm NewtonRaphson;
+@Epsilon 1.e-14;
+@Theta 1;
+@UseQt false;
+
+@TFELLibraries {"Material"};
+@Includes{
+#include "TFEL/Material/StiffnessTensor.hxx"
+}
+
+@ModellingHypothesis Axisymmetrical;
+@PhysicalBounds T in [0. : *[;
+
+@MaterialProperty real b_a;
+
+@Brick "StandardElastoViscoPlasticity" {
+stress_potential : "Hooke" {
+young_modulus : "200.e9-170.e6*(T-273.15)",
+poisson_ratio : 0.3,
+thermal_expansion : 20.e-6
+},
+inelastic_flow : "Norton" {
+criterion : "Mises",
+kinematic_hardening : "Chaboche 2012" {
+C : "67.e6*(1573.15-T)",
+D : 960.,
+m : 0.,
+w : 0.
+},
+isotropic_hardening : "UserDefined" {R : "200.e6+400.e3*(1273.15-T) + ((exp(-b_a*p)-1)+(b_a*(max(573.15-T,0.)/max(573.15-T,1.e-20)*65.e6*p)))",
+dR_dp : "-b_a*exp(-b_a*p)+b_a*max(573.15-T,0.)/max(573.15-T,1.e-20)*65.e6"},
+n : "2.86+7.e-3*(1273.15-T)",
+A : 1.,
+K : "820.e6-1200.*(1093.15-T)*(1093.15-T)"
+}
+};
+
