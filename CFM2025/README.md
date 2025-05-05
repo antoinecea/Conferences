@@ -1,5 +1,8 @@
 # CFM 2025
 
+This repository is a companion to the CFM 2025 conference paper:
+Implementation of automated tools for linear and non-linear homogenization: examples through the extension of the MFront code generator.
+
 Here are the files relative to the simulation performed in the conference paper, which deals on
 metallurgical phase transformation.
 
