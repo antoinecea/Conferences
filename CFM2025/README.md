@@ -1,7 +1,7 @@
 # CFM 2025
 
 Here are the files relative to the simulation performed in the conference paper, which deals on
-mettalurgical phase transformation.
+metallurgical phase transformation.
 
 ## Description
 
