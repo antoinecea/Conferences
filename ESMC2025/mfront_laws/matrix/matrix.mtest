@@ -1,0 +1,11 @@
+@ModellingHypothesis 'Tridimensional';
+@Behaviour<Generic> 'src/libmatrix-generic.so' 'matrixmatrix';
+@ExternalStateVariable 'Temperature' {0 : 1000,1:1000};
+@MaterialProperty<constant> 'ke' 2.e9;
+@MaterialProperty<constant> 'Ge' 1.e9;
+@MaterialProperty<constant> 'kv' 0.4e9;
+@MaterialProperty<constant> 'Gv' 0.2e9;
+@ImposedStrain 'EXX' {0 : 0, 10 : 1.};
+@ImposedStrain 'EYY' {0 : 0, 10 : 0};
+@ImposedStrain 'EZZ' {0 : 0, 10 : 0};
+@Times {0,10 in 400};

@@ -1,0 +1,59 @@
+@DSL ImplicitII;
+@Material matrix;
+@Behaviour matrix;
+@Author Antoine Martin;
+@Date 13 / 03 / 25;
+
+@Algorithm NewtonRaphson;
+@Epsilon 1.e-14;
+@Theta 1;
+@UseQt false;
+
+@TFELLibraries {"Material"};
+@Includes{
+#include "TFEL/Material/StiffnessTensor.hxx"
+}
+
+@MaterialProperty real ke;
+ke.setEntryName("ke");
+
+@MaterialProperty real Ge;
+Ge.setEntryName("Ge");
+
+@MaterialProperty real kv;
+kv.setEntryName("kv");
+
+@MaterialProperty real Gv;
+Gv.setEntryName("Gv");
+
+@ModellingHypothesis Tridimensional;
+@PhysicalBounds T in [0. : *[;
+
+@StateVariable Stensor eel;
+eel.setGlossaryName("ElasticStrain");
+
+@AuxiliaryStateVariable Stensor alpha;
+alpha.setEntryName("alpha");
+
+@LocalVariable Stensor4 De;
+@LocalVariable Stensor4 L;
+
+@Integrator {
+auto J=tfel::math::st2tost2<3u,real>::J();
+auto K=tfel::math::st2tost2<3u,real>::K();
+L=1/(3*kv)*J+1/(2*Gv)*K;
+De=3*ke*J+2*Ge*K;
+feel=dt*L*(De*(eel+deel))+deel-deto;
+dfeel_ddeel=J+K+dt*L*De;
+};
+
+
+@ComputeFinalStress{
+sig+=De*deel;
+alpha+=dt*L*De*(eel+deel);
+}
+
+@TangentOperator{
+Dt=De*iJ_eel_eel;
+}
+
