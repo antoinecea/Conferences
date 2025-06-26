@@ -7,8 +7,6 @@
 @MaterialProperty<constant> 'muv0' 0.2e9;
 @MaterialProperty<constant> 'kar' 20.e9;
 @MaterialProperty<constant> 'mur' 10.e9;
-@MaterialProperty<constant> 'kavr' 4e6;
-@MaterialProperty<constant> 'muvr' 2e6;
 @MaterialProperty<constant> 'e' 10.;
 @MaterialProperty<constant> 'fr' 0.08;
 @ImposedStrain 'EXX' {0 : 0, 6 : 6e-1};
