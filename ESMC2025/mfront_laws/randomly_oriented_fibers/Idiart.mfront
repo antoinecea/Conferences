@@ -93,7 +93,6 @@ Kv=f0*invert(P0v);
 R0e=invert(invert(C0)-f0*invert(P0e));
 R0v=invert(invert(M0)-f0*invert(P0v));
 
-//auto n = FiberMicrostructure::get_normals("hard_random_f=0.12.csv");
 auto n=Microstructure<real>::get_normals();
 
 Te_=Stensor4::zero();
