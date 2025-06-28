@@ -140,3 +140,24 @@ def read_vtk(file_name, field_name):
     vec = [i - 1 for i in dim]
     e0 = vnp.vtk_to_numpy(data.GetCellData().GetArray(champ_name))
     return e0.reshape(vec, order="F")
+
+#just for writing a .vtk file
+def write_vtk(mic,name,N):
+	VTK_HEADER = f"""# vtk DataFile Version 4.5
+Materiau
+BINARY
+DATASET STRUCTURED_POINTS
+DIMENSIONS    {N+1}   {N+1}   {N+1}
+ORIGIN    0.000   0.000   0.000
+SPACING   {1.:.7e} {1.:.7e} {1.:.7e}
+CELL_DATA   {N*N*N}
+SCALARS MaterialId unsigned_short
+LOOKUP_TABLE default
+"""
+	data = np.zeros((N, N, N), dtype=">u2")
+	for i in np.ndindex((N,N,N)):
+		ii,jj,kk=i
+		data[ii,jj,kk]=mic[kk,jj,ii]
+	with open(name+".vtk", "wb") as file:
+		file.write(VTK_HEADER.encode())
+		data.tofile(file)

@@ -1,5 +1,5 @@
 @ModellingHypothesis 'Tridimensional';
-@Behaviour<Generic> 'src/libBehaviour.so' 'Idiart';
+@Behaviour<Generic> 'src/libBehaviour.so' 'Idiart_elastic_inclusions';
 @ExternalStateVariable 'Temperature' {0 : 1000,1:1000};
 @MaterialProperty<constant> 'ka0' 2.e9;
 @MaterialProperty<constant> 'mu0' 1.e9;

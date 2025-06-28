@@ -183,7 +183,7 @@ def add(m,c,R,l,r,index):
     return bool_test,m
                 
         
-#warning R must be > l/2
+#warning R must be >= l/2 (R is one-half of the cell, and l is the total spheroid length). There is no exclusion distance in this implementation. There is no overlap between spheroids
 @jit(nopython=True)
 def generate_micro(R,l,r,f):
     Vol=np.pi*r**2*l
@@ -204,5 +204,50 @@ def generate_micro(R,l,r,f):
             i+=1
             print("put inclusion ", i)
     return m
+
+#warning R must be >= l/2 (R is one-half of the cell, and l is the total spheroid length). There is no overlap between spheroids.
+# There is no exclusion distance in this implementation (which may cause overlapping after voxelize process).
+@jit(nopython=True)
+def generate_micro_aligned(R,l,r,f):
+    Vol=np.pi*r**2*l
+    Voltot=8*R**3
+    N=int(f*Voltot/Vol)
+    print(N)
+    m=np.zeros((1,3,3))
+    i=0
+    while i<N:
+        center=np.array([uniform(-R,R),uniform(-R,R),uniform(-R,R)])
+        theta=np.arccos(1-2*uniform(0,1))
+        theta=np.pi/2
+        phi=0.
+        normal=np.array([np.sin(theta)*np.cos(phi),np.sin(theta)*np.sin(phi),np.cos(theta)])
+        angle=np.array([theta*180/np.pi,phi*180/np.pi,0])
+        c=np.array([[center[0],center[1],center[2]],[normal[0],normal[1],normal[2]],[angle[0],angle[1],angle[2]]])
+        bool1,m=add(m,c,R,l,r,i)
+        if bool1:
+            i+=1
+            print(i)
+    return m
+    
+l=0.5 #semi_length
+e=10 #aspect ratio
+D=1 #side of the box
+f=0.12 # target fraction (will be smaller after voxellization)
+micro=generate_micro(D/2,l,l/e/2,f)
+micro_name="micro_randomly_oriented"
+np.save("./"+micro_name+".npy",micro)
+
+from voxelize import *
+size=128
+micro_v=voxelize_ell_n(micro,size,l,e,D)
+write_vtk(micro_v,micro_name,size)
+
+f=0.1 # target fraction (will be smaller after voxellization)
+micro=generate_micro_aligned(D/2,l,l/e/2,f)
+micro_name="micro_aligned"
+np.save("./"+micro_name+".npy",micro)
+micro_v=voxelize_ell(micro,size,l,e,D)
+write_vtk(micro_v,micro_name,size)
+
 
 

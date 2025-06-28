@@ -1,5 +1,5 @@
 @DSL Default;
-@Behaviour Idiart;
+@Behaviour Idiart_elastic_inclusions;
 @Author Martin Antoine;
 @Date 06 / 05 / 25;
 @UseQt false;
@@ -28,10 +28,6 @@ muv0.setEntryName("muv0");
 kar.setEntryName("kar");
 @MaterialProperty real mur;
 mur.setEntryName("mur");
-@MaterialProperty real kavr;
-kavr.setEntryName("kavr");
-@MaterialProperty real muvr;
-muvr.setEntryName("muvr");
 @MaterialProperty real e;
 e.setEntryName("e");
 @MaterialProperty real fr;
@@ -81,9 +77,7 @@ I=Stensor4::Id();
 C0=3*ka0*Stensor4::J()+2*mu0*Stensor4::K();
 M0=3*kav0*Stensor4::J()+2*muv0*Stensor4::K();
 const auto Cr=3*kar*Stensor4::J()+2*mur*Stensor4::K();
-const auto Mr=3*kavr*Stensor4::J()+2*muvr*Stensor4::K();
 const auto invdC=invert(Cr-C0);
-const auto invdM=invert(Mr-M0);
 f0=1-fr;
 
 using namespace tfel::material::homogenization::elasticity;

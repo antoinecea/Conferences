@@ -87,7 +87,7 @@ tfel::math::map_derivative<6,0,Stensor,Stensor>(mat)=((M0+D0*P0v*(M_-M0))/dt+C0)
 tfel::math::map_derivative<0,6,Stensor,Stensor>(mat)=((M_-M0)*(I-P0v*D0)/dt+C_-C0);
 tfel::math::map_derivative<6,6,Stensor,Stensor>(mat)=-((Ms-D0*P0v*(M_-M0)*(I-P0v*D0))/dt+Cs);
 
-tfel::math::map_derivative<0,0,Stensor,real>(f_)=C_*(eto+deto)/sig0-C_*(alpha_)-(C_-C0)*(alpha_s_r);
+tfel::math::map_derivative<0,0,Stensor,real>(f_)=C_*(eto+deto)-C_*(alpha_)-(C_-C0)*(alpha_s_r);
 tfel::math::map_derivative<6,0,Stensor,real>(f_)=-(C0*alpha_-Cs*alpha_s_r-C0*(eto+deto));
 
 TinyMatrixInvert<12,real>::exe(mat);
