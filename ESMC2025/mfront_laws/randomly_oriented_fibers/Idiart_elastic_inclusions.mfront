@@ -83,12 +83,11 @@ f0=1-fr;
 using namespace tfel::material::homogenization::elasticity;
 P0e=computeSphereHillPolarisationTensor<stress>(KGModuli(ka0,mu0));
 P0v=computeSphereHillPolarisationTensor<stress>(KGModuli(kav0,muv0));
-Ke=f0*invert(P0e);
-Kv=f0*invert(P0v);
-R0e=invert(invert(C0)-f0*invert(P0e));
-R0v=invert(invert(M0)-f0*invert(P0v));
+Ke=I;
+Kv=I;
+R0e=invert(invert(C0)-invert(P0e));
+R0v=invert(invert(M0)-invert(P0v));
 
-//auto n = FiberMicrostructure::get_normals("hard_random_f=0.12.csv");
 auto n=Microstructure<real>::get_normals();
 
 Te_=Stensor4::zero();
@@ -102,7 +101,7 @@ for (int i = 0 ; i<Nr ;i++){
 	Rv[i]=invert(invert(M0)-Pv[i]);
 	Te[i]=invert(invdC+Pe[i]);
 	Tv[i]=invert(Pv[i]);
-	Ke+=frac[i]*invdC*Te[i];
+	Ke-=frac[i]*Te[i]*Pe[i];
 	Te_+=frac[i]*Te[i];
 	Tv_+=frac[i]*Tv[i];
 }
@@ -115,11 +114,11 @@ dfSe_deto=Stensor4::zero();
 dfSv_deto=Stensor4::zero();
 dfas0_deto=Stensor4::zero();
 
-tfel::math::map_derivative<18,18,Stensor,Stensor>(mat)=Tv_+Tv_*Kv*Tv_+dt*(Te_+Te_*Ke*Te_)+C0*dt+M0;//dfalpha__ddalpha_
-tfel::math::map_derivative<18,0,Stensor,real>(f_)=dt*Te_*(eto-alpha_+deto)-dt*Se+dt*Te_*Ke*(Te_*(eto-alpha_+deto)-Se)+dt*C0*(eto-alpha_+deto);//falpha_
-tfel::math::map_derivative<18,0,Stensor,Stensor>(mat)=dt*(I+Te_*Ke);//dfalpha__ddSe
-tfel::math::map_derivative<18,6,Stensor,Stensor>(mat)=(I+Tv_*Kv);//dfalpha__ddSv
-dfalpha_deto=-dt*(Te_+Te_*Ke*Te_)-dt*C0;
+tfel::math::map_derivative<18,18,Stensor,Stensor>(mat)=Kv*Tv_+dt*(Ke*Te_)+C0*dt+M0;//dfalpha__ddalpha_
+tfel::math::map_derivative<18,0,Stensor,real>(f_)=dt*Ke*(Te_*(eto-alpha_+deto)-Se)+dt*C0*(eto-alpha_+deto);//falpha_
+tfel::math::map_derivative<18,0,Stensor,Stensor>(mat)=dt*Ke;//dfalpha__ddSe
+tfel::math::map_derivative<18,6,Stensor,Stensor>(mat)=Kv;//dfalpha__ddSv
+dfalpha_deto=-dt*Ke*Te_-dt*C0;
 
 tfel::math::map_derivative<0,0,Stensor,Stensor>(mat)=I;//dfSe_ddSe
 tfel::math::map_derivative<6,6,Stensor,Stensor>(mat)=I;//dfSv_ddSv
@@ -128,11 +127,11 @@ tfel::math::map_derivative<12,12,Stensor,Stensor>(mat)=I;//dfas0_ddas0
 for (int i = 0 ; i<Nr ;i++){
 	auto A1=frac[i]*(dt*(Te[i]+Re[i])+Rv[i]);
 	auto A2=-frac[i]*(dt*R0e+R0v);
-	auto A3=frac[i]*(dt*(Te[i]+Te[i]*Ke*Te_)+Tv[i]+Tv[i]*Kv*Tv_);
-	auto A4=frac[i]*dt*(Te[i]*Ke);
-	auto A5=frac[i]*(Tv[i]*Kv);
-	Stensor tens=dt*(R0e*as0-Re[i]*alpha_s[i])+dt*Te[i]*(eto+deto-alpha_-alpha_s[i])+dt*Te[i]*Ke*(Te_*(eto+deto-alpha_)-Se);
-	auto dasi_deto=invert(A1)*(frac[i]*dt*(Te[i]+Te[i]*Ke*Te_));
+	auto A3=frac[i]*(dt*(Te[i]+Te[i]*Pe[i]*Ke*Te_)+Tv[i]+Tv[i]*Pv[i]*Kv*Tv_);
+	auto A4=frac[i]*dt*(Te[i]*Pe[i]*Ke);
+	auto A5=frac[i]*(Tv[i]*Pv[i]*Kv);
+	Stensor tens=dt*(R0e*as0-Re[i]*alpha_s[i])+dt*Te[i]*(eto+deto-alpha_-alpha_s[i])+dt*Te[i]*Pe[i]*Ke*(Te_*(eto+deto-alpha_)-Se);
+	auto dasi_deto=invert(A1)*(frac[i]*dt*(Te[i]+Te[i]*Pe[i]*Ke*Te_));
 	
 	tfel::math::map_derivative<0,0,Stensor,real>(f_)+=(frac[i]*Te[i]*invert(A1)*(frac[i]*tens))/sige;//fSe
 	tfel::math::map_derivative<6,0,Stensor,real>(f_)+=(frac[i]*Tv[i]*invert(A1)*(frac[i]*tens))/sigv;//fSv
@@ -173,7 +172,7 @@ dSv=tfel::math::map_derivative<6,0,Stensor,real>(dv);
 das0=tfel::math::map_derivative<12,0,Stensor,real>(dv);
 dalpha_=tfel::math::map_derivative<18,0,Stensor,real>(dv);
 	
-auto ts=Te_*(deto-dalpha_)-dSe+Te_*Ke*(Te_*(deto-dalpha_)-dSe);
+auto ts=Ke*(Te_*(deto-dalpha_)-dSe);
 sig+=C0*(deto-dalpha_)+ts;
 };
 
@@ -181,10 +180,10 @@ sig+=C0*(deto-dalpha_)+ts;
   for (int i = 0 ; i<Nr ;i++){
 	auto A1=frac[i]*(dt*(Te[i]+Re[i])+Rv[i]);
 	auto A2=-frac[i]*(dt*R0e+R0v);
-	auto A3=frac[i]*(dt*(Te[i]+Te[i]*Ke*Te_)+Tv[i]+Tv[i]*Kv*Tv_);
-	auto A4=frac[i]*dt*(Te[i]*Ke);
-	auto A5=frac[i]*(Tv[i]*Kv);
-	Stensor tens=dt*(R0e*as0-Re[i]*alpha_s[i]+Te[i]*(eto+deto-alpha_-alpha_s[i])+Te[i]*Ke*(Te_*(eto+deto-alpha_)-Se));
+	auto A3=frac[i]*(dt*(Te[i]+Te[i]*Pe[i]*Ke*Te_)+Tv[i]+Tv[i]*Pv[i]*Kv*Tv_);
+	auto A4=frac[i]*dt*(Te[i]*Pe[i]*Ke);
+	auto A5=frac[i]*(Tv[i]*Pv[i]*Kv);
+	Stensor tens=dt*(R0e*as0-Re[i]*alpha_s[i]+Te[i]*(eto+deto-alpha_-alpha_s[i])+Te[i]*Pe[i]*Ke*(Te_*(eto+deto-alpha_)-Se));
 	alpha_s[i]+=invert(A1)*(-A2*das0-A3*dalpha_-A4*dSe-A5*dSv+frac[i]*tens);
   }
 }
@@ -204,6 +203,6 @@ auto dSe_deto=-iJ_Se_Se*dfSe_deto-iJ_Se_Sv*dfSv_deto-iJ_Se_as0*dfas0_deto-iJ_Se_
 auto dal_deto=-iJ_alpha__Se*dfSe_deto-iJ_alpha__Sv*dfSv_deto-iJ_alpha__as0*dfas0_deto-iJ_alpha__alpha_*dfalpha_deto;
 
 auto de_deto=I-dal_deto;
-Stensor4 tdt=(Te_+Te_*Ke*Te_)*de_deto-dSe_deto-Te_*Ke*dSe_deto;
+Stensor4 tdt=Ke*Te_*de_deto-Ke*dSe_deto;
 Dt=C0*de_deto+tdt;
 }
