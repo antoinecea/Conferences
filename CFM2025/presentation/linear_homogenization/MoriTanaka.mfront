@@ -1,0 +1,44 @@
+@DSL Default;
+@Behaviour MoriTanaka;
+@Author Antoine Martin;
+@UseQt false;
+
+@TFELLibraries {"Material"};
+
+@Includes{
+#include "TFEL/Material/LinearHomogenizationSchemes.hxx"
+}
+
+@ModellingHypothesis Tridimensional;
+@PhysicalBounds T in [0. : *[;
+
+@MaterialProperty real E0;
+@MaterialProperty real nu0;
+@MaterialProperty real Ei;
+@MaterialProperty real nui;
+@MaterialProperty real a;
+@MaterialProperty real b;
+@MaterialProperty real c;
+
+@ExternalStateVariable real frac;
+@ExternalStateVariable tvector<3,real> na;
+
+@LocalVariable Stensor4 Ce;
+
+@Integrator{
+const tvector<3,real> ez={0.,0.,1.};
+const tvector<3,real> ex={1.,0.,0.};
+auto pro=cross_product<real>(na,ez);
+auto no=norm(pro);
+tvector<3,real> nb = (no==0.) ? ex : 1./no*pro ;
+Ce=tfel::material::homogenization::elasticity::computeOrientedMoriTanakaScheme<real>(E0,nu0,frac,Ei,nui,na,a,nb,b,c);
+sig += Ce*deto;
+}
+
+
+@TangentOperator{
+  Dt=Ce;
+}
+
+
+
