@@ -1,0 +1,134 @@
+@DSL Implicit;
+@Behaviour Perzyna;
+@Author Antoine MARTIN;
+@Date 21 / 07 / 2025;
+
+@Algorithm NewtonRaphson;
+@Epsilon 1.e-14;
+@Theta 1;
+@UseQt false;
+
+@MaterialProperty stress E_;
+@MaterialProperty real nu_;
+@MaterialProperty stress sigy;
+@MaterialProperty stress kk;
+
+@StateVariable strain p;
+p.setGlossaryName("EquivalentPlasticStrain");
+
+@StateVariable Stensor X;
+X.setEntryName("KinematicHardeningStress");
+
+@AuxiliaryStateVariable Stensor evp;
+evp.setEntryName("ViscoPlasticStrain");
+
+@AuxiliaryStateVariable Stensor4 invAtg;
+invAtg.setEntryName("invAtangent");
+
+@AuxiliaryStateVariable Stensor evp_dot;
+evp_dot.setEntryName("ViscoPlasticStrainRate");
+
+@TFELLibraries {"Material"};
+
+@Includes{
+#include "TFEL/Material/StiffnessTensor.hxx"
+#include "TFEL/Material/IsotropicModuli.hxx"
+}
+
+@ModellingHypothesis Tridimensional;
+@PhysicalBounds T in [0. : *[;
+
+@Parameter real nv = 2.3333;
+@Parameter real hp = 0.;
+@Parameter real deps0 = 1;
+@Parameter real sig0_ = 1e9;
+
+@LocalVariable Stensor4 Ce;
+@LocalVariable Stensor n;
+@LocalVariable stress fv;
+@LocalVariable real p_dot; 
+
+@InitLocalVariables {
+    auto J=Stensor4::J();
+    auto K=Stensor4::K();
+    using namespace tfel::material;
+    auto Enu0=tfel::material::YoungNuModuli(E_,nu_);
+    auto KG0=Enu0.ToKG();
+    stress k0=std::get<0>(KG0);
+    stress mu0=std::get<1>(KG0);
+    Ce=3*k0*J+2*mu0*K;
+}
+
+@Integrator {
+
+ auto K=Stensor4::K();
+  constexpr auto eeps = 1.e-14;
+  const auto seps = E_ * eeps;
+  
+  const auto seq_X = sigmaeq(sig+Ce*deel-(X+dX)*sig0_);
+  const auto iseq_X = 1 / (max(seq_X, seps));
+  n = 3./2. * deviator(sig+Ce*deel-(X+dX)*sig0_) * iseq_X;
+  
+  // equivalent stress
+  const auto Rp = sigy + kk*(p+dp);
+  fv = seq_X - Rp;
+  
+  feel =deel+ dp * n-deto;
+  p_dot=deps0*pow(max(fv, stress(0))/Rp, nv);
+  fp =dp- dt*p_dot;
+  fX =dX- 2./3.*hp*dp*n/sig0_;
+
+  
+  // jacobian blocks
+  const auto dn_ddeel =  iseq_X * (Stensor4::M() - (n ^ n))*Ce;
+  const auto dn_ddX = - iseq_X * (Stensor4::M() - (n ^ n))*sig0_;
+  
+  dfeel_ddeel = Stensor4::Id()+ dp * dn_ddeel;
+  dfeel_ddp = n;
+  dfeel_ddX = dp*dn_ddX;
+  auto sgn= max(fv, stress(0)) > 0 ? 1 : 0;
+  const auto df_deel = sgn/Rp*K*Ce*n;
+  const auto df_dX = -sgn*K*n/Rp*sig0_;
+  const auto dpf_dp=-kk*sgn ;
+  const auto df_dp=(dpf_dp*Rp-kk*max(fv, stress(0)))/Rp/Rp;
+  
+  const auto dpdot_df= nv*deps0*pow(max(fv, stress(0))/Rp, nv-1);
+  const auto dpdot_ddeel =  dpdot_df*df_deel;
+  const auto dpdot_ddX =  dpdot_df*df_dX;
+  const auto dpdot_ddp = dpdot_df*df_dp;
+  
+  dfp_ddp = 1 - dt * dpdot_ddp;
+  dfp_ddeel = -dt * dpdot_ddeel;
+  dfp_ddX = -dt*dpdot_ddX;
+  
+  dfX_ddX = Stensor4::Id()-2./3.*hp*dp*dn_ddX/sig0_;
+  dfX_ddeel = -2./3.*hp*dp*dn_ddeel/sig0_;
+  dfX_ddp = -2./3.*hp*n/sig0_;
+  
+}
+
+@UpdateAuxiliaryStateVariables{
+evp+=dp*n;
+evp_dot=p_dot*n;
+auto K=Stensor4::K();
+constexpr auto eeps = 1.e-14;
+const auto seps = E_ * eeps;
+const auto seq_X = sigmaeq(sig+Ce*deel-(X+dX)*sig0_);
+const auto iseq_X = 1 / (max(seq_X, seps));
+const auto Rp = sigy + kk*(p+dp);
+auto sgn= seq_X > Rp ? 1 : 0;
+Stensor4 tens1=2./3.*(nv-(seq_X - Rp)*iseq_X)*n^n;
+Stensor4 tens2=((seq_X - Rp)*iseq_X)*K;
+auto fac=3*deps0/2./Rp*pow((seq_X - Rp)/Rp, nv-1);
+invAtg = sgn ==0 ? Stensor4::zero() : fac*(tens1+tens2);
+}
+
+
+@ComputeFinalStress{
+sig = Ce*(eel+deel);
+
+}
+
+@TangentOperator{
+  Dt=Ce*iJ_eel_eel;
+}

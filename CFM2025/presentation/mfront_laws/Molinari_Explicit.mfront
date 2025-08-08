@@ -1,0 +1,180 @@
+@DSL Default;
+@Behaviour Molinari_Explicit;
+@Author Antoine Martin;
+@UseQt false;
+
+@ModellingHypothesis Tridimensional;
+@PhysicalBounds T in [0. : *[;
+
+@MaterialProperty real fi;
+fi.setEntryName("fi");
+
+@Parameter real si = 1e9;
+
+@StateVariable Stensor eto0;
+eto0.setEntryName("MatrixPhaseTotalStrain");
+
+@StateVariable Stensor etoi;
+etoi.setEntryName("InclusionPhaseTotalStrain");
+
+@StateVariable Stensor sig0;
+sig0.setEntryName("MatrixPhaseTotalStress");
+
+@StateVariable Stensor sigi;
+sigi.setEntryName("InclusionPhaseTotalStress");
+
+@AuxiliaryStateVariable Stensor4 Ltg;
+Ltg.setEntryName("TangentModulus");
+
+@AuxiliaryStateVariable Stensor evp_dot_0;
+evp_dot_0.setEntryName("MatrixViscoPlasticStrainRate");
+
+@AuxiliaryStateVariable Stensor evp_dot_i;
+evp_dot_i.setEntryName("InclusionViscoPlasticStrainRate");
+
+@TFELLibraries {"Material"};
+
+@Includes{
+#include "TFEL/Material/IsotropicEshelbyTensor.hxx"
+#include "TFEL/Material/StiffnessTensor.hxx"
+#include "TFEL/Material/MicrostructureDescription.hxx"
+}
+
+@BehaviourVariable mat {
+file: "Perzyna.mfront",
+variables_suffix: "0",
+store_gradients: false,
+store_thermodynamic_forces: false,
+external_names_prefix: "MatrixPhase",
+shared_external_state_variables: {".+"}
+};
+
+@BehaviourVariable inc {
+file: "Perzyna.mfront",
+variables_suffix: "i",
+store_gradients: false,
+store_thermodynamic_forces: false,
+external_names_prefix: "InclusionPhase",
+shared_external_state_variables: {".+"}
+};
+
+
+@LocalVariable Stensor4 Ce;
+@LocalVariable Stensor4 Cei;
+@LocalVariable Stensor4 Lei;
+@LocalVariable stress k0;
+@LocalVariable stress mu0;
+@LocalVariable Stensor4 Dt0;
+@LocalVariable Stensor4 Dti;
+@LocalVariable tfel::math::tmatrix<24,24,real> MAT;
+@LocalVariable tfel::math::tmatrix<24,1,real> f_;
+
+@InitLocalVariables<Append> {
+    auto J=st2tost2<3u,real>::J();
+    auto K=st2tost2<3u,real>::K();
+    
+    using namespace tfel::material;
+    auto Enu0=YoungNuModuli(E_0,nu_0);
+    auto KG0=Enu0.ToKG();
+    k0=std::get<0>(KG0);
+    mu0=std::get<1>(KG0);
+    Ce=3*k0*J+2*mu0*K;
+    
+    auto Enui=YoungNuModuli(E_i,nu_i);
+    auto KGi=Enui.ToKG();
+    auto ki=std::get<0>(KGi);
+    auto mui=std::get<1>(KGi);
+    Cei=3*ki*J+2*mui*K;
+    
+    using namespace tfel::material::homogenization::elasticity;
+    auto Pei=computeSphereHillPolarisationTensor(E_0,nu_0);
+    Lei=invert(Ce-invert(Pei));
+}
+
+@Integrator {
+  auto Id=Stensor4::Id();
+  auto K=st2tost2<3u,real>::K();
+  auto J=st2tost2<3u,real>::J();
+  
+   //system to solve
+   //-Ce*evp_dot_0_*dt= dsig0-Ce*deto0;
+   //-Ce*evp_dot_i_*dt= dsigi-Cei*detoi;
+   //dt*Ltg*(sigi-sig0)= detoi-deto0-Lei*(dsigi-dsig0);
+   //deto =(1-fi)*deto0+fi*detoi;
+  
+  //right-hand side
+        tfel::math::map_derivative<0,0,Stensor,real>(f_)=-Ce*evp_dot_0/si*dt;
+	tfel::math::map_derivative<6,0,Stensor,real>(f_)=-Cei*evp_dot_i/si*dt;
+	tfel::math::map_derivative<12,0,Stensor,real>(f_)=dt*Ltg*(sigi-sig0);
+	tfel::math::map_derivative<18,0,Stensor,real>(f_)=deto;
+	
+  //matrix
+        tfel::math::map_derivative<0,0,Stensor,Stensor>(MAT)=-Ce/si;
+	tfel::math::map_derivative<0,12,Stensor,Stensor>(MAT)=Id/si;
+
+	tfel::math::map_derivative<6,6,Stensor,Stensor>(MAT)=-Cei/si;
+	tfel::math::map_derivative<6,18,Stensor,Stensor>(MAT)=Id/si;
+	
+	tfel::math::map_derivative<12,0,Stensor,Stensor>(MAT)=-Id;
+	tfel::math::map_derivative<12,6,Stensor,Stensor>(MAT)=Id;
+	tfel::math::map_derivative<12,12,Stensor,Stensor>(MAT)=Lei;
+	tfel::math::map_derivative<12,18,Stensor,Stensor>(MAT)=-Lei;
+	
+	tfel::math::map_derivative<18,0,Stensor,Stensor>(MAT)=(1-fi)*Id;
+	tfel::math::map_derivative<18,6,Stensor,Stensor>(MAT)=fi*Id;
+	
+   //solve
+
+TinyMatrixInvert<24,real>::exe(MAT);
+tfel::math::tmatrix<24,1,real> dv=MAT*f_;
+
+deto0=tfel::math::map_derivative<0,0,Stensor,real>(dv);
+detoi=tfel::math::map_derivative<6,0,Stensor,real>(dv);
+dsig0=tfel::math::map_derivative<12,0,Stensor,real>(dv);
+dsigi=tfel::math::map_derivative<18,0,Stensor,real>(dv);
+   
+sig += (1-fi)*dsig0+fi*dsigi;
+   
+// computation of tangent modulus and evp_dot for following time step;
+  initialize(mat);
+  mat.eto=eto0;
+  mat.deto=deto0;
+  mat.sig=sig0;
+  
+  constexpr auto mat_smflag = TangentOperatorTraits<MechanicalBehaviourBase::STANDARDSTRAINBASEDBEHAVIOUR>::STANDARDTANGENTOPERATOR;
+  const auto r1 = mat.integrate(mat_smflag,CONSISTENTTANGENTOPERATOR);
+  Dt0 = mat.getTangentOperator();
+  
+  initialize(inc);
+  inc.eto=etoi;
+  inc.deto=detoi;
+  inc.sig=sigi;
+  
+  constexpr auto inc_smflag = TangentOperatorTraits<MechanicalBehaviourBase::STANDARDSTRAINBASEDBEHAVIOUR>::STANDARDTANGENTOPERATOR;
+  const auto r2 = inc.integrate(inc_smflag,CONSISTENTTANGENTOPERATOR);
+  
+  using namespace tfel::material::homogenization::elasticity;
+  constexpr real epsi = std::numeric_limits<real>::min();
+  
+  auto invAtg=mat.invAtg;
+  auto deter =tfel::math::det(invAtg);
+  if (abs(deter)<abs(epsi)){
+     Ltg=Stensor4::zero();
+  } else {
+     auto Atg=invert(invAtg);
+     auto pair = tfel::material::computeKappaMu(Atg);
+     auto katg=std::get<0>(pair);
+     auto mutg=std::get<1>(pair);
+     Ltg=-1./(3*mutg)*K;
+  }
+  evp_dot_0=mat.evp_dot;
+  evp_dot_i=inc.evp_dot;
+}
+
+
+@TangentOperator{
+  Stensor4 iJ_sig0=tfel::math::map_derivative<12,18,Stensor,Stensor>(MAT);
+  Stensor4 iJ_sigi=tfel::math::map_derivative<18,18,Stensor,Stensor>(MAT);
+  Dt=(1-fi)*iJ_sig0+fi*iJ_sigi;
+}
+

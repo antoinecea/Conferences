@@ -1,0 +1,208 @@
+@DSL Default;
+@Behaviour Idiart_random_elastic_inclusions;
+@Author Martin Antoine;
+@Date 06 / 05 / 25;
+@UseQt false;
+
+@TFELLibraries {"Material"};
+@Includes{
+#include "TFEL/Material/IsotropicEshelbyTensor.hxx"
+#include "TFEL/Material/LinearHomogenizationSchemes.hxx"
+#include "TFEL/Material/StiffnessTensor.hxx"
+#include "../extra-headers/TFEL/Material/microstructure.hxx"}
+
+@Parameter real sige=1e6;
+@Parameter real sigv=1e6;
+@IntegerConstant Nr=20;
+
+
+@MaterialProperty real ka0;
+ka0.setEntryName("ka0");
+@MaterialProperty real mu0;
+mu0.setEntryName("mu0");
+@MaterialProperty real kav0;
+kav0.setEntryName("kav0");
+@MaterialProperty real muv0;
+muv0.setEntryName("muv0");
+@MaterialProperty real kar;
+kar.setEntryName("kar");
+@MaterialProperty real mur;
+mur.setEntryName("mur");
+@MaterialProperty real e;
+e.setEntryName("e");
+@MaterialProperty real fr;
+fr.setEntryName("fr");
+
+@ModellingHypothesis Tridimensional;
+@PhysicalBounds T in [0. : *[;
+@StateVariable Stensor Se;
+Se.setEntryName("MacroscopicElasticPolarisation");
+@StateVariable Stensor Sv;
+Sv.setEntryName("MacroscopicViscousPolarisation");
+@StateVariable Stensor as0;
+as0.setEntryName("MatrixAverageViscousStrain");
+@StateVariable Stensor alpha_;
+alpha_.setEntryName("MacroscopicViscousStrain");
+@AuxiliaryStateVariable Stensor alpha_s[Nr];
+alpha_s.setEntryName("SolenoidalViscousStrains");
+
+@LocalVariable Stensor4 C0;
+@LocalVariable Stensor4 M0;
+@LocalVariable real f0;
+@LocalVariable real frac[Nr];
+@LocalVariable Stensor4 Ke;
+@LocalVariable Stensor4 Kv;
+@LocalVariable Stensor4 Te_;
+@LocalVariable Stensor4 Tv_;
+@LocalVariable Stensor4 dfSe_deto;
+@LocalVariable Stensor4 dfSv_deto;
+@LocalVariable Stensor4 dfalpha_deto;
+@LocalVariable Stensor4 dfas0_deto;
+@LocalVariable Stensor4 Re[Nr];
+@LocalVariable Stensor4 Rv[Nr];
+@LocalVariable Stensor4 Te[Nr];
+@LocalVariable Stensor4 Tv[Nr];
+@LocalVariable Stensor4 Pe[Nr];
+@LocalVariable Stensor4 Pv[Nr];
+@LocalVariable Stensor4 R0e;
+@LocalVariable Stensor4 R0v;
+@LocalVariable Stensor4 P0e;
+@LocalVariable Stensor4 P0v;
+@LocalVariable tfel::math::tmatrix<24,24,real> mat;
+@LocalVariable tfel::math::tmatrix<24,1,real> f_;
+@LocalVariable Stensor4 I;
+
+@InitLocalVariables {
+I=Stensor4::Id();
+C0=3*ka0*Stensor4::J()+2*mu0*Stensor4::K();
+M0=3*kav0*Stensor4::J()+2*muv0*Stensor4::K();
+const auto Cr=3*kar*Stensor4::J()+2*mur*Stensor4::K();
+const auto invdC=invert(Cr-C0);
+f0=1-fr;
+
+using namespace tfel::material::homogenization::elasticity;
+P0e=computeSphereHillPolarisationTensor<stress>(KGModuli(ka0,mu0));
+P0v=computeSphereHillPolarisationTensor<stress>(KGModuli(kav0,muv0));
+Ke=I;
+Kv=I;
+R0e=invert(invert(C0)-invert(P0e));
+R0v=invert(invert(M0)-invert(P0v));
+
+auto n=Microstructure<real>::get_normals();
+
+Te_=Stensor4::zero();
+Tv_=Stensor4::zero();
+for (int i = 0 ; i<Nr ;i++){
+	frac[i]=fr/Nr;
+	using namespace tfel::material::homogenization::elasticity;
+	Pe[i]=computeAxisymmetricalHillPolarisationTensor<stress>(KGModuli(ka0,mu0),n[i],e);
+	Pv[i]=computeAxisymmetricalHillPolarisationTensor<stress>(KGModuli(kav0,muv0),n[i],e);
+	Re[i]=invert(invert(C0)-Pe[i]);
+	Rv[i]=invert(invert(M0)-Pv[i]);
+	Te[i]=invert(invdC+Pe[i]);
+	Tv[i]=invert(Pv[i]);
+	Ke-=frac[i]*Te[i]*Pe[i];
+	Te_+=frac[i]*Te[i];
+	Tv_+=frac[i]*Tv[i];
+}
+Ke=invert(Ke);
+Kv=invert(Kv);
+}
+
+@Integrator {
+dfSe_deto=Stensor4::zero();
+dfSv_deto=Stensor4::zero();
+dfas0_deto=Stensor4::zero();
+
+tfel::math::map_derivative<18,18,Stensor,Stensor>(mat)=Kv*Tv_+dt*(Ke*Te_)+C0*dt+M0;//dfalpha__ddalpha_
+tfel::math::map_derivative<18,0,Stensor,real>(f_)=dt*Ke*(Te_*(eto-alpha_+deto)-Se)+dt*C0*(eto-alpha_+deto);//falpha_
+tfel::math::map_derivative<18,0,Stensor,Stensor>(mat)=dt*Ke;//dfalpha__ddSe
+tfel::math::map_derivative<18,6,Stensor,Stensor>(mat)=Kv;//dfalpha__ddSv
+dfalpha_deto=-dt*Ke*Te_-dt*C0;
+
+tfel::math::map_derivative<0,0,Stensor,Stensor>(mat)=I;//dfSe_ddSe
+tfel::math::map_derivative<6,6,Stensor,Stensor>(mat)=I;//dfSv_ddSv
+tfel::math::map_derivative<12,12,Stensor,Stensor>(mat)=I;//dfas0_ddas0
+
+for (int i = 0 ; i<Nr ;i++){
+	auto A1=frac[i]*(dt*(Te[i]+Re[i])+Rv[i]);
+	auto A2=-frac[i]*(dt*R0e+R0v);
+	auto A3=frac[i]*(dt*(Te[i]+Te[i]*Pe[i]*Ke*Te_)+Tv[i]+Tv[i]*Pv[i]*Kv*Tv_);
+	auto A4=frac[i]*dt*(Te[i]*Pe[i]*Ke);
+	auto A5=frac[i]*(Tv[i]*Pv[i]*Kv);
+	Stensor tens=dt*(R0e*as0-Re[i]*alpha_s[i])+dt*Te[i]*(eto+deto-alpha_-alpha_s[i])+dt*Te[i]*Pe[i]*Ke*(Te_*(eto+deto-alpha_)-Se);
+	auto dasi_deto=invert(A1)*(frac[i]*dt*(Te[i]+Te[i]*Pe[i]*Ke*Te_));
+	
+	tfel::math::map_derivative<0,0,Stensor,real>(f_)+=(frac[i]*Te[i]*invert(A1)*(frac[i]*tens))/sige;//fSe
+	tfel::math::map_derivative<6,0,Stensor,real>(f_)+=(frac[i]*Tv[i]*invert(A1)*(frac[i]*tens))/sigv;//fSv
+	tfel::math::map_derivative<12,0,Stensor,real>(f_)-=frac[i]/f0*invert(A1)*(frac[i]*tens);//fas0
+	
+	dfSe_deto+=frac[i]*Te[i]*dasi_deto/sige;
+	dfSv_deto+=frac[i]*Tv[i]*dasi_deto/sigv;
+	dfas0_deto-=frac[i]/f0*dasi_deto;
+	
+	//jacobian
+	auto invA1=invert(A1);
+	auto dasi_das0=-invA1*A2;
+	auto dasi_dal=-invA1*A3;
+	auto dasi_dSe=-invA1*A4;
+	auto dasi_dSv=-invA1*A5;
+	
+	tfel::math::map_derivative<0,0,Stensor,Stensor>(mat)-=frac[i]*Te[i]*dasi_dSe/sige;//dfSe_ddSe
+	tfel::math::map_derivative<0,6,Stensor,Stensor>(mat)-=frac[i]*Te[i]*dasi_dSv/sige;//dfSe_ddSv
+	tfel::math::map_derivative<0,12,Stensor,Stensor>(mat)-=frac[i]*Te[i]*dasi_das0/sige;//dfSe_ddas0
+	tfel::math::map_derivative<0,18,Stensor,Stensor>(mat)-=frac[i]*Te[i]*dasi_dal/sige;//dfSe_ddalpha_
+	
+	tfel::math::map_derivative<6,0,Stensor,Stensor>(mat)-=frac[i]*Tv[i]*dasi_dSe/sigv;//dfSv_ddSe
+	tfel::math::map_derivative<6,6,Stensor,Stensor>(mat)-=frac[i]*Tv[i]*dasi_dSv/sigv;//dfSv_ddSv
+	tfel::math::map_derivative<6,12,Stensor,Stensor>(mat)-=frac[i]*Tv[i]*dasi_das0/sigv;//dfSv_ddas0
+	tfel::math::map_derivative<6,18,Stensor,Stensor>(mat)-=frac[i]*Tv[i]*dasi_dal/sigv;//dfSv_ddalpha_
+	
+	tfel::math::map_derivative<12,0,Stensor,Stensor>(mat)+=frac[i]/f0*dasi_dSe;//dfas0_ddSe
+	tfel::math::map_derivative<12,6,Stensor,Stensor>(mat)+=frac[i]/f0*dasi_dSv;//dfas0_ddSv
+	tfel::math::map_derivative<12,12,Stensor,Stensor>(mat)+=frac[i]/f0*dasi_das0;//dfas0_ddas0
+	tfel::math::map_derivative<12,18,Stensor,Stensor>(mat)+=frac[i]/f0*dasi_dal;//dfas0_ddalpha_
+}
+
+TinyMatrixInvert<24,real>::exe(mat);
+tfel::math::tmatrix<24,1,real> dv=mat*f_;
+
+dSe=tfel::math::map_derivative<0,0,Stensor,real>(dv);
+dSv=tfel::math::map_derivative<6,0,Stensor,real>(dv);
+das0=tfel::math::map_derivative<12,0,Stensor,real>(dv);
+dalpha_=tfel::math::map_derivative<18,0,Stensor,real>(dv);
+
+auto ts=Ke*(Te_*(deto-dalpha_)-dSe);
+sig+=C0*(deto-dalpha_)+ts;
+};
+
+@UpdateAuxiliaryStateVariables{
+  for (int i = 0 ; i<Nr ;i++){
+	auto A1=frac[i]*(dt*(Te[i]+Re[i])+Rv[i]);
+	auto A2=-frac[i]*(dt*R0e+R0v);
+	auto A3=frac[i]*(dt*(Te[i]+Te[i]*Pe[i]*Ke*Te_)+Tv[i]+Tv[i]*Pv[i]*Kv*Tv_);
+	auto A4=frac[i]*dt*(Te[i]*Pe[i]*Ke);
+	auto A5=frac[i]*(Tv[i]*Pv[i]*Kv);
+	Stensor tens=dt*(R0e*as0-Re[i]*alpha_s[i]+Te[i]*(eto+deto-alpha_-alpha_s[i])+Te[i]*Pe[i]*Ke*(Te_*(eto+deto-alpha_)-Se));
+	alpha_s[i]+=invert(A1)*(-A2*das0-A3*dalpha_-A4*dSe-A5*dSv+frac[i]*tens);
+  }
+}
+
+@TangentOperator{
+Stensor4 iJ_Se_Se=tfel::math::map_derivative<0,0,Stensor,Stensor>(mat);
+Stensor4 iJ_Se_Sv=tfel::math::map_derivative<0,6,Stensor,Stensor>(mat);
+Stensor4 iJ_Se_as0=tfel::math::map_derivative<0,12,Stensor,Stensor>(mat);
+Stensor4 iJ_Se_alpha_=tfel::math::map_derivative<0,18,Stensor,Stensor>(mat);
+
+Stensor4 iJ_alpha__Se=tfel::math::map_derivative<18,0,Stensor,Stensor>(mat);
+Stensor4 iJ_alpha__Sv=tfel::math::map_derivative<18,6,Stensor,Stensor>(mat);
+Stensor4 iJ_alpha__as0=tfel::math::map_derivative<18,12,Stensor,Stensor>(mat);
+Stensor4 iJ_alpha__alpha_=tfel::math::map_derivative<18,18,Stensor,Stensor>(mat);
+
+auto dSe_deto=-iJ_Se_Se*dfSe_deto-iJ_Se_Sv*dfSv_deto-iJ_Se_as0*dfas0_deto-iJ_Se_alpha_*dfalpha_deto;
+auto dal_deto=-iJ_alpha__Se*dfSe_deto-iJ_alpha__Sv*dfSv_deto-iJ_alpha__as0*dfas0_deto-iJ_alpha__alpha_*dfalpha_deto;
+
+auto de_deto=I-dal_deto;
+Stensor4 tdt=Ke*Te_*de_deto-Ke*dSe_deto;
+Dt=C0*de_deto+tdt;
+}
